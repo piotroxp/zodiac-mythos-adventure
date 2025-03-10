@@ -18,6 +18,7 @@ export default function ThreeScene({ profile, gameState }: ThreeSceneProps) {
   const characterRef = useRef<THREE.Group | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const clockRef = useRef<THREE.Clock>(new THREE.Clock());
+  const godsRef = useRef<THREE.Group[]>([]);
 
   // Initialize Three.js scene
   useEffect(() => {
@@ -75,6 +76,9 @@ export default function ThreeScene({ profile, gameState }: ThreeSceneProps) {
     // Add character based on zodiac
     createCharacter();
 
+    // Add Greek gods
+    createGreekGods();
+
     // Animation loop
     const animate = () => {
       const delta = clockRef.current.getDelta();
@@ -87,6 +91,9 @@ export default function ThreeScene({ profile, gameState }: ThreeSceneProps) {
       if (characterRef.current) {
         characterRef.current.rotation.y += delta * 0.5;
       }
+
+      // Animate gods walking around
+      animateGreekGods(delta);
 
       if (rendererRef.current && sceneRef.current && cameraRef.current) {
         rendererRef.current.render(sceneRef.current, cameraRef.current);
@@ -127,6 +134,272 @@ export default function ThreeScene({ profile, gameState }: ThreeSceneProps) {
     
     updateDayNightCycle(gameState.dayNightCycle);
   }, [gameState.dayNightCycle]);
+
+  // Helper function to create Greek gods
+  const createGreekGods = () => {
+    if (!sceneRef.current) return;
+
+    // Define gods with their colors and names
+    const gods = [
+      { name: "Zeus", color: 0xffd700, position: [5, 0, 0], scale: 1.2 },      // Gold
+      { name: "Poseidon", color: 0x1e90ff, position: [-5, 0, 0], scale: 1.1 },  // Deep blue
+      { name: "Athena", color: 0x808080, position: [0, 0, 5], scale: 1.0 },     // Gray (wisdom)
+      { name: "Apollo", color: 0xffa500, position: [4, 0, 4], scale: 1.05 },    // Orange (sun)
+      { name: "Artemis", color: 0x98fb98, position: [-4, 0, -4], scale: 0.95 }, // Light green
+      { name: "Hermes", color: 0xb0c4de, position: [-3, 0, 3], scale: 0.9 }     // Light steel blue
+    ];
+
+    gods.forEach(god => {
+      const godGroup = createGod(god.name, god.color, god.scale);
+      godGroup.position.set(god.position[0], god.position[1], god.position[2]);
+      sceneRef.current?.add(godGroup);
+      
+      // Add to refs array for animation
+      godsRef.current.push(godGroup);
+      
+      // Add name label above god
+      addGodLabel(godGroup, god.name);
+    });
+  };
+  
+  // Helper function to create a single god
+  const createGod = (name: string, color: number, scale: number): THREE.Group => {
+    const god = new THREE.Group();
+    
+    // Body
+    const bodyGeometry = new THREE.CapsuleGeometry(0.5, 1, 4, 8);
+    const bodyMaterial = new THREE.MeshStandardMaterial({ 
+      color: color,
+      metalness: 0.3,
+      roughness: 0.6
+    });
+    const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+    body.position.y = 1;
+    body.castShadow = true;
+    god.add(body);
+    
+    // Head
+    const headGeometry = new THREE.SphereGeometry(0.35, 16, 16);
+    const headMaterial = new THREE.MeshStandardMaterial({ 
+      color: 0xffe0bd, // Skin tone
+      roughness: 0.8
+    });
+    const head = new THREE.Mesh(headGeometry, headMaterial);
+    head.position.y = 2.1;
+    head.castShadow = true;
+    god.add(head);
+    
+    // Robe/Toga
+    const robeGeometry = new THREE.CylinderGeometry(0.6, 0.8, 1.5, 8);
+    const robeMaterial = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      roughness: 0.7
+    });
+    const robe = new THREE.Mesh(robeGeometry, robeMaterial);
+    robe.position.y = 0.6;
+    robe.castShadow = true;
+    god.add(robe);
+    
+    // Add godly aura (particles)
+    const auraGroup = new THREE.Group();
+    const particleCount = 20;
+    
+    for (let i = 0; i < particleCount; i++) {
+      const particle = new THREE.Mesh(
+        new THREE.SphereGeometry(0.05, 8, 8),
+        new THREE.MeshBasicMaterial({
+          color: color,
+          transparent: true,
+          opacity: 0.7
+        })
+      );
+      
+      // Position particles in a sphere around the god
+      const phi = Math.random() * Math.PI * 2;
+      const theta = Math.random() * Math.PI;
+      const radius = 0.8 + Math.random() * 0.4;
+      
+      particle.position.x = radius * Math.sin(theta) * Math.cos(phi);
+      particle.position.y = 1.5 + Math.random() * 1;
+      particle.position.z = radius * Math.sin(theta) * Math.sin(phi);
+      
+      // Store initial position for animation
+      particle.userData = {
+        initialPosition: particle.position.clone(),
+        speed: 0.01 + Math.random() * 0.03,
+        amplitude: 0.1 + Math.random() * 0.1,
+        phase: Math.random() * Math.PI * 2
+      };
+      
+      auraGroup.add(particle);
+    }
+    
+    god.add(auraGroup);
+    
+    // Scale god
+    god.scale.set(scale, scale, scale);
+    
+    // Add god-specific attribute
+    if (name === "Zeus") {
+      // Add lightning bolt
+      const boltGeometry = new THREE.CylinderGeometry(0.03, 0.03, 1.2, 5, 1, false);
+      const boltMaterial = new THREE.MeshBasicMaterial({ color: 0xffff00 });
+      const bolt = new THREE.Mesh(boltGeometry, boltMaterial);
+      bolt.rotation.z = Math.PI / 4;
+      bolt.position.set(0.5, 1.5, 0);
+      god.add(bolt);
+    } else if (name === "Poseidon") {
+      // Add trident
+      const tridentGroup = new THREE.Group();
+      
+      // Staff
+      const staffGeometry = new THREE.CylinderGeometry(0.05, 0.05, 2, 8);
+      const staffMaterial = new THREE.MeshStandardMaterial({ color: 0x8b4513 });
+      const staff = new THREE.Mesh(staffGeometry, staffMaterial);
+      tridentGroup.add(staff);
+      
+      // Prongs
+      for (let i = -1; i <= 1; i++) {
+        const prongGeometry = new THREE.CylinderGeometry(0.03, 0.01, 0.5, 8);
+        const prong = new THREE.Mesh(prongGeometry, staffMaterial);
+        prong.position.set(i * 0.1, 1.1, 0);
+        tridentGroup.add(prong);
+      }
+      
+      tridentGroup.position.set(0.5, 0.8, 0);
+      tridentGroup.rotation.z = Math.PI * 0.1;
+      god.add(tridentGroup);
+    } else if (name === "Athena") {
+      // Add shield
+      const shieldGeometry = new THREE.CircleGeometry(0.3, 16);
+      const shieldMaterial = new THREE.MeshStandardMaterial({ 
+        color: 0xb87333,
+        metalness: 0.5,
+        roughness: 0.3
+      });
+      const shield = new THREE.Mesh(shieldGeometry, shieldMaterial);
+      shield.position.set(-0.5, 1.2, 0.1);
+      shield.rotation.y = Math.PI * 0.1;
+      god.add(shield);
+    }
+    
+    // Setup god movement pattern
+    god.userData = {
+      moveSpeed: 0.3 + Math.random() * 0.3,
+      rotateSpeed: 0.2 + Math.random() * 0.3,
+      targetPosition: new THREE.Vector3(
+        (Math.random() - 0.5) * 10,
+        0,
+        (Math.random() - 0.5) * 10
+      ),
+      waitTime: 0,
+      maxWaitTime: 2 + Math.random() * 3
+    };
+    
+    return god;
+  };
+  
+  // Add text label above god
+  const addGodLabel = (god: THREE.Group, name: string) => {
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+    if (!context) return;
+    
+    canvas.width = 128;
+    canvas.height = 64;
+    
+    context.fillStyle = 'rgba(0, 0, 0, 0.5)';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.fillStyle = 'white';
+    context.font = '24px serif';
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.fillText(name, canvas.width / 2, canvas.height / 2);
+    
+    const texture = new THREE.CanvasTexture(canvas);
+    const material = new THREE.MeshBasicMaterial({
+      map: texture,
+      transparent: true,
+      depthWrite: false
+    });
+    
+    const geometry = new THREE.PlaneGeometry(1, 0.5);
+    const label = new THREE.Mesh(geometry, material);
+    
+    label.position.y = 3;
+    label.rotation.x = -Math.PI / 4; // Angle toward camera
+    
+    god.add(label);
+    
+    // Ensure label always faces camera
+    god.userData.updateLabel = (camera: THREE.Camera) => {
+      label.quaternion.copy(camera.quaternion);
+    };
+  };
+  
+  // Animate Greek gods moving around
+  const animateGreekGods = (delta: number) => {
+    if (!cameraRef.current) return;
+    
+    godsRef.current.forEach(god => {
+      const data = god.userData;
+      
+      // Update label orientation
+      if (data.updateLabel) {
+        data.updateLabel(cameraRef.current!);
+      }
+      
+      // Animate particles/aura
+      god.children.forEach(child => {
+        if (child instanceof THREE.Group) {
+          child.children.forEach(particle => {
+            if (particle.userData && particle.userData.initialPosition) {
+              const pData = particle.userData;
+              const time = Date.now() * 0.001;
+              
+              particle.position.x = pData.initialPosition.x + Math.sin(time * pData.speed + pData.phase) * pData.amplitude;
+              particle.position.y = pData.initialPosition.y + Math.cos(time * pData.speed + pData.phase) * pData.amplitude;
+              particle.position.z = pData.initialPosition.z + Math.sin(time * pData.speed * 0.5) * pData.amplitude * 0.5;
+            }
+          });
+        }
+      });
+      
+      // Handle movement
+      if (data.waitTime > 0) {
+        data.waitTime -= delta;
+      } else {
+        // Move towards target
+        const direction = new THREE.Vector3().subVectors(data.targetPosition, god.position).normalize();
+        god.position.add(direction.multiplyScalar(data.moveSpeed * delta));
+        
+        // Rotate to face movement direction
+        if (direction.length() > 0.01) {
+          const targetRotation = Math.atan2(direction.x, direction.z);
+          let currentRotation = god.rotation.y;
+          
+          // Smoothly rotate
+          const rotDiff = targetRotation - currentRotation;
+          // Handle wrapping around 2PI
+          const shortestRotation = ((rotDiff + Math.PI) % (Math.PI * 2)) - Math.PI;
+          god.rotation.y += shortestRotation * data.rotateSpeed * delta;
+        }
+        
+        // Check if close to target
+        if (god.position.distanceTo(data.targetPosition) < 0.5) {
+          // Set new target
+          data.targetPosition.set(
+            (Math.random() - 0.5) * 10,
+            0,
+            (Math.random() - 0.5) * 10
+          );
+          
+          // Wait a bit before moving to new target
+          data.waitTime = data.maxWaitTime;
+        }
+      }
+    });
+  };
 
   // Helper function to create Olympus terrain
   const createOlympusTerrain = () => {
