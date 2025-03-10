@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
-import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { ZodiacProfile, GameState } from "@/types/zodiac";
 
 interface ThreeSceneProps {
@@ -24,7 +24,13 @@ export default function ThreeScene({ profile, gameState }: ThreeSceneProps) {
     speed: 1.5,
     targetPosition: new THREE.Vector3(0, 0, 0),
     waitTime: 0,
-    maxWaitTime: 3 + Math.random() * 3
+    maxWaitTime: 3 + Math.random() * 3,
+    keyboardControls: {
+      forward: false,
+      backward: false,
+      left: false,
+      right: false
+    }
   });
   const animationStateRef = useRef({
     leftLegForward: true,
@@ -81,11 +87,50 @@ export default function ThreeScene({ profile, gameState }: ThreeSceneProps) {
 
     createGreekGods();
 
-    characterMovementRef.current.targetPosition = new THREE.Vector3(
-      (Math.random() - 0.5) * 5, 
-      0, 
-      (Math.random() - 0.5) * 5
-    );
+    const handleKeyDown = (event: KeyboardEvent) => {
+      switch(event.key) {
+        case 'ArrowUp':
+        case 'w':
+          characterMovementRef.current.keyboardControls.forward = true;
+          break;
+        case 'ArrowDown':
+        case 's':
+          characterMovementRef.current.keyboardControls.backward = true;
+          break;
+        case 'ArrowLeft':
+        case 'a':
+          characterMovementRef.current.keyboardControls.left = true;
+          break;
+        case 'ArrowRight':
+        case 'd':
+          characterMovementRef.current.keyboardControls.right = true;
+          break;
+      }
+    };
+    
+    const handleKeyUp = (event: KeyboardEvent) => {
+      switch(event.key) {
+        case 'ArrowUp':
+        case 'w':
+          characterMovementRef.current.keyboardControls.forward = false;
+          break;
+        case 'ArrowDown':
+        case 's':
+          characterMovementRef.current.keyboardControls.backward = false;
+          break;
+        case 'ArrowLeft':
+        case 'a':
+          characterMovementRef.current.keyboardControls.left = false;
+          break;
+        case 'ArrowRight':
+        case 'd':
+          characterMovementRef.current.keyboardControls.right = false;
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
 
     const animate = () => {
       const delta = clockRef.current.getDelta();
@@ -129,6 +174,8 @@ export default function ThreeScene({ profile, gameState }: ThreeSceneProps) {
       }
       
       window.removeEventListener('resize', handleResize);
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
     };
   }, []);
 
@@ -147,41 +194,73 @@ export default function ThreeScene({ profile, gameState }: ThreeSceneProps) {
     
     animState.animationTime += delta * animState.cycleSpeed;
     
-    if (movementData.waitTime > 0) {
-      movementData.waitTime -= delta;
+    const keyControls = movementData.keyboardControls;
+    const isUsingKeyboard = keyControls.forward || keyControls.backward || 
+                            keyControls.left || keyControls.right;
+    
+    if (isUsingKeyboard) {
+      movementData.walking = true;
       
-      resetCharacterPose(character);
-    } else {
-      const direction = new THREE.Vector3().subVectors(
-        movementData.targetPosition, 
-        character.position
-      ).normalize();
+      const moveDirection = new THREE.Vector3(0, 0, 0);
       
-      character.position.add(direction.clone().multiplyScalar(movementData.speed * delta));
+      if (keyControls.forward) moveDirection.z -= 1;
+      if (keyControls.backward) moveDirection.z += 1;
+      if (keyControls.left) moveDirection.x -= 1;
+      if (keyControls.right) moveDirection.x += 1;
       
-      if (direction.length() > 0.01) {
-        const targetRotation = Math.atan2(direction.x, direction.z);
+      if (moveDirection.length() > 0) {
+        moveDirection.normalize();
+        
+        const targetRotation = Math.atan2(moveDirection.x, moveDirection.z);
         character.rotation.y = targetRotation;
         
-        movementData.walking = true;
-        movementData.direction = direction;
-      }
-      
-      if (movementData.walking) {
+        character.position.add(moveDirection.multiplyScalar(movementData.speed * delta));
         animateWalkCycle(character, animState.animationTime);
+      } else {
+        resetCharacterPose(character);
+        movementData.walking = false;
       }
       
-      if (character.position.distanceTo(movementData.targetPosition) < 0.5) {
-        movementData.targetPosition.set(
-          (Math.random() - 0.5) * 5,
-          0,
-          (Math.random() - 0.5) * 5
-        );
-        
-        movementData.waitTime = movementData.maxWaitTime;
-        movementData.walking = false;
-        
+      const maxDistance = 6.5;
+      if (character.position.length() > maxDistance) {
+        character.position.normalize().multiplyScalar(maxDistance);
+      }
+    } else {
+      if (movementData.waitTime > 0) {
+        movementData.waitTime -= delta;
         resetCharacterPose(character);
+      } else {
+        const direction = new THREE.Vector3().subVectors(
+          movementData.targetPosition, 
+          character.position
+        ).normalize();
+        
+        character.position.add(direction.clone().multiplyScalar(movementData.speed * delta));
+        
+        if (direction.length() > 0.01) {
+          const targetRotation = Math.atan2(direction.x, direction.z);
+          character.rotation.y = targetRotation;
+          
+          movementData.walking = true;
+          movementData.direction = direction;
+        }
+        
+        if (movementData.walking) {
+          animateWalkCycle(character, animState.animationTime);
+        }
+        
+        if (character.position.distanceTo(movementData.targetPosition) < 0.5) {
+          movementData.targetPosition.set(
+            (Math.random() - 0.5) * 5,
+            0,
+            (Math.random() - 0.5) * 5
+          );
+          
+          movementData.waitTime = movementData.maxWaitTime;
+          movementData.walking = false;
+          
+          resetCharacterPose(character);
+        }
       }
     }
     
