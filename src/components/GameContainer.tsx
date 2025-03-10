@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { createZodiacProfile } from "@/utils/zodiacUtils";
 import { useToast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
 
 export default function GameContainer() {
   const [loading, setLoading] = useState(true);
@@ -173,7 +174,10 @@ export default function GameContainer() {
                   <span>Health</span>
                   <span>{character.health}/100</span>
                 </div>
-                <Progress value={character.health} className="h-2" indicatorClassName="bg-green-500" />
+                <Progress value={character.health} className={cn("h-2", "bg-secondary")} />
+                <div className="h-2 -mt-2 rounded-full overflow-hidden">
+                  <div className="h-full bg-green-500" style={{ width: `${character.health}%` }}></div>
+                </div>
               </div>
               
               <div>
@@ -181,7 +185,10 @@ export default function GameContainer() {
                   <span>Mana</span>
                   <span>{character.mana}/100</span>
                 </div>
-                <Progress value={character.mana} className="h-2" indicatorClassName="bg-blue-500" />
+                <Progress value={character.mana} className={cn("h-2", "bg-secondary")} />
+                <div className="h-2 -mt-2 rounded-full overflow-hidden">
+                  <div className="h-full bg-blue-500" style={{ width: `${character.mana}%` }}></div>
+                </div>
               </div>
             </div>
             
