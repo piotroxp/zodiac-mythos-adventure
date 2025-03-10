@@ -1,4 +1,3 @@
-
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
@@ -19,12 +18,23 @@ export default function ThreeScene({ profile, gameState }: ThreeSceneProps) {
   const animationFrameRef = useRef<number | null>(null);
   const clockRef = useRef<THREE.Clock>(new THREE.Clock());
   const godsRef = useRef<THREE.Group[]>([]);
+  const characterMovementRef = useRef({
+    walking: false,
+    direction: new THREE.Vector3(0, 0, 0),
+    speed: 1.5,
+    targetPosition: new THREE.Vector3(0, 0, 0),
+    waitTime: 0,
+    maxWaitTime: 3 + Math.random() * 3
+  });
+  const animationStateRef = useRef({
+    leftLegForward: true,
+    animationTime: 0,
+    cycleSpeed: 1.5
+  });
 
-  // Initialize Three.js scene
   useEffect(() => {
     if (!containerRef.current) return;
 
-    // Create renderer
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setSize(containerRef.current.clientWidth, containerRef.current.clientHeight);
     renderer.setPixelRatio(window.devicePixelRatio);
@@ -32,12 +42,10 @@ export default function ThreeScene({ profile, gameState }: ThreeSceneProps) {
     containerRef.current.appendChild(renderer.domElement);
     rendererRef.current = renderer;
 
-    // Create scene
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0xe0f2fe); // Light blue sky
+    scene.background = new THREE.Color(0xe0f2fe);
     sceneRef.current = scene;
 
-    // Create camera
     const camera = new THREE.PerspectiveCamera(
       60,
       containerRef.current.clientWidth / containerRef.current.clientHeight,
@@ -47,7 +55,6 @@ export default function ThreeScene({ profile, gameState }: ThreeSceneProps) {
     camera.position.set(0, 5, 10);
     cameraRef.current = camera;
 
-    // Create controls
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.05;
@@ -56,7 +63,6 @@ export default function ThreeScene({ profile, gameState }: ThreeSceneProps) {
     controls.maxPolarAngle = Math.PI / 2;
     controlsRef.current = controls;
 
-    // Create lighting
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
     scene.add(ambientLight);
 
@@ -67,19 +73,20 @@ export default function ThreeScene({ profile, gameState }: ThreeSceneProps) {
     directionalLight.shadow.mapSize.height = 1024;
     scene.add(directionalLight);
 
-    // Setup day/night cycle
     updateDayNightCycle(gameState.dayNightCycle);
 
-    // Add Olympus terrain
     createOlympusTerrain();
 
-    // Add character based on zodiac
-    createCharacter();
+    createHumanoidCharacter();
 
-    // Add Greek gods
     createGreekGods();
 
-    // Animation loop
+    characterMovementRef.current.targetPosition = new THREE.Vector3(
+      (Math.random() - 0.5) * 5, 
+      0, 
+      (Math.random() - 0.5) * 5
+    );
+
     const animate = () => {
       const delta = clockRef.current.getDelta();
       
@@ -87,12 +94,10 @@ export default function ThreeScene({ profile, gameState }: ThreeSceneProps) {
         controlsRef.current.update();
       }
 
-      // Animate character if it exists
       if (characterRef.current) {
-        characterRef.current.rotation.y += delta * 0.5;
+        animateCharacter(delta);
       }
 
-      // Animate gods walking around
       animateGreekGods(delta);
 
       if (rendererRef.current && sceneRef.current && cameraRef.current) {
@@ -104,7 +109,6 @@ export default function ThreeScene({ profile, gameState }: ThreeSceneProps) {
 
     animate();
 
-    // Resize handler
     const handleResize = () => {
       if (!containerRef.current || !cameraRef.current || !rendererRef.current) return;
 
@@ -128,25 +132,116 @@ export default function ThreeScene({ profile, gameState }: ThreeSceneProps) {
     };
   }, []);
 
-  // Update scene when gameState changes
   useEffect(() => {
     if (!sceneRef.current) return;
     
     updateDayNightCycle(gameState.dayNightCycle);
   }, [gameState.dayNightCycle]);
 
-  // Helper function to create Greek gods
+  const animateCharacter = (delta: number) => {
+    if (!characterRef.current) return;
+    
+    const character = characterRef.current;
+    const movementData = characterMovementRef.current;
+    const animState = animationStateRef.current;
+    
+    animState.animationTime += delta * animState.cycleSpeed;
+    
+    if (movementData.waitTime > 0) {
+      movementData.waitTime -= delta;
+      
+      resetCharacterPose(character);
+    } else {
+      const direction = new THREE.Vector3().subVectors(
+        movementData.targetPosition, 
+        character.position
+      ).normalize();
+      
+      character.position.add(direction.clone().multiplyScalar(movementData.speed * delta));
+      
+      if (direction.length() > 0.01) {
+        const targetRotation = Math.atan2(direction.x, direction.z);
+        character.rotation.y = targetRotation;
+        
+        movementData.walking = true;
+        movementData.direction = direction;
+      }
+      
+      if (movementData.walking) {
+        animateWalkCycle(character, animState.animationTime);
+      }
+      
+      if (character.position.distanceTo(movementData.targetPosition) < 0.5) {
+        movementData.targetPosition.set(
+          (Math.random() - 0.5) * 5,
+          0,
+          (Math.random() - 0.5) * 5
+        );
+        
+        movementData.waitTime = movementData.maxWaitTime;
+        movementData.walking = false;
+        
+        resetCharacterPose(character);
+      }
+    }
+    
+    character.children.forEach(child => {
+      if (child.name === "aura") {
+        child.children.forEach(particle => {
+          if (particle.userData && particle.userData.initialPosition) {
+            const pData = particle.userData;
+            const time = Date.now() * 0.001;
+            
+            particle.position.x = pData.initialPosition.x + Math.sin(time * pData.speed + pData.phase) * pData.amplitude;
+            particle.position.y = pData.initialPosition.y + Math.cos(time * pData.speed + pData.phase) * pData.amplitude;
+            particle.position.z = pData.initialPosition.z + Math.sin(time * pData.speed * 0.5) * pData.amplitude * 0.5;
+          }
+        });
+      }
+    });
+  };
+
+  const resetCharacterPose = (character: THREE.Group) => {
+    character.children.forEach(part => {
+      if (part.name === "leftLeg" || part.name === "rightLeg") {
+        part.rotation.x = 0;
+      }
+      if (part.name === "leftArm" || part.name === "rightArm") {
+        part.rotation.x = 0;
+      }
+    });
+  };
+
+  const animateWalkCycle = (character: THREE.Group, time: number) => {
+    const legAmplitude = Math.PI / 8;
+    const armAmplitude = Math.PI / 10;
+    
+    character.children.forEach(part => {
+      if (part.name === "leftLeg") {
+        part.rotation.x = Math.sin(time * Math.PI) * legAmplitude;
+      }
+      if (part.name === "rightLeg") {
+        part.rotation.x = Math.sin(time * Math.PI + Math.PI) * legAmplitude;
+      }
+      if (part.name === "leftArm") {
+        part.rotation.x = Math.sin(time * Math.PI + Math.PI) * armAmplitude;
+      }
+      if (part.name === "rightArm") {
+        part.rotation.x = Math.sin(time * Math.PI) * armAmplitude;
+      }
+    });
+  };
+
   const createGreekGods = () => {
     if (!sceneRef.current) return;
 
-    // Define gods with their colors and names
     const gods = [
-      { name: "Zeus", color: 0xffd700, position: [5, 0, 0], scale: 1.2 },      // Gold
-      { name: "Poseidon", color: 0x1e90ff, position: [-5, 0, 0], scale: 1.1 },  // Deep blue
-      { name: "Athena", color: 0x808080, position: [0, 0, 5], scale: 1.0 },     // Gray (wisdom)
-      { name: "Apollo", color: 0xffa500, position: [4, 0, 4], scale: 1.05 },    // Orange (sun)
-      { name: "Artemis", color: 0x98fb98, position: [-4, 0, -4], scale: 0.95 }, // Light green
-      { name: "Hermes", color: 0xb0c4de, position: [-3, 0, 3], scale: 0.9 }     // Light steel blue
+      { name: "Zeus", color: 0xffd700, position: [5, 0, 0], scale: 1.2 },
+      { name: "Poseidon", color: 0x1e90ff, position: [-5, 0, 0], scale: 1.1 },
+      { name: "Athena", color: 0x808080, position: [0, 0, 5], scale: 1.0 },
+      { name: "Apollo", color: 0xffa500, position: [4, 0, 4], scale: 1.05 },
+      { name: "Artemis", color: 0x98fb98, position: [-4, 0, -4], scale: 0.95 },
+      { name: "Hermes", color: 0xb0c4de, position: [-3, 0, 3], scale: 0.9 }
     ];
 
     gods.forEach(god => {
@@ -154,19 +249,15 @@ export default function ThreeScene({ profile, gameState }: ThreeSceneProps) {
       godGroup.position.set(god.position[0], god.position[1], god.position[2]);
       sceneRef.current?.add(godGroup);
       
-      // Add to refs array for animation
       godsRef.current.push(godGroup);
       
-      // Add name label above god
       addGodLabel(godGroup, god.name);
     });
   };
-  
-  // Helper function to create a single god
+
   const createGod = (name: string, color: number, scale: number): THREE.Group => {
     const god = new THREE.Group();
     
-    // Body
     const bodyGeometry = new THREE.CapsuleGeometry(0.5, 1, 4, 8);
     const bodyMaterial = new THREE.MeshStandardMaterial({ 
       color: color,
@@ -178,10 +269,9 @@ export default function ThreeScene({ profile, gameState }: ThreeSceneProps) {
     body.castShadow = true;
     god.add(body);
     
-    // Head
     const headGeometry = new THREE.SphereGeometry(0.35, 16, 16);
     const headMaterial = new THREE.MeshStandardMaterial({ 
-      color: 0xffe0bd, // Skin tone
+      color: 0xffe0bd,
       roughness: 0.8
     });
     const head = new THREE.Mesh(headGeometry, headMaterial);
@@ -189,7 +279,6 @@ export default function ThreeScene({ profile, gameState }: ThreeSceneProps) {
     head.castShadow = true;
     god.add(head);
     
-    // Robe/Toga
     const robeGeometry = new THREE.CylinderGeometry(0.6, 0.8, 1.5, 8);
     const robeMaterial = new THREE.MeshStandardMaterial({
       color: 0xffffff,
@@ -200,7 +289,6 @@ export default function ThreeScene({ profile, gameState }: ThreeSceneProps) {
     robe.castShadow = true;
     god.add(robe);
     
-    // Add godly aura (particles)
     const auraGroup = new THREE.Group();
     const particleCount = 20;
     
@@ -214,7 +302,6 @@ export default function ThreeScene({ profile, gameState }: ThreeSceneProps) {
         })
       );
       
-      // Position particles in a sphere around the god
       const phi = Math.random() * Math.PI * 2;
       const theta = Math.random() * Math.PI;
       const radius = 0.8 + Math.random() * 0.4;
@@ -223,7 +310,6 @@ export default function ThreeScene({ profile, gameState }: ThreeSceneProps) {
       particle.position.y = 1.5 + Math.random() * 1;
       particle.position.z = radius * Math.sin(theta) * Math.sin(phi);
       
-      // Store initial position for animation
       particle.userData = {
         initialPosition: particle.position.clone(),
         speed: 0.01 + Math.random() * 0.03,
@@ -236,12 +322,9 @@ export default function ThreeScene({ profile, gameState }: ThreeSceneProps) {
     
     god.add(auraGroup);
     
-    // Scale god
     god.scale.set(scale, scale, scale);
     
-    // Add god-specific attribute
     if (name === "Zeus") {
-      // Add lightning bolt
       const boltGeometry = new THREE.CylinderGeometry(0.03, 0.03, 1.2, 5, 1, false);
       const boltMaterial = new THREE.MeshBasicMaterial({ color: 0xffff00 });
       const bolt = new THREE.Mesh(boltGeometry, boltMaterial);
@@ -249,16 +332,13 @@ export default function ThreeScene({ profile, gameState }: ThreeSceneProps) {
       bolt.position.set(0.5, 1.5, 0);
       god.add(bolt);
     } else if (name === "Poseidon") {
-      // Add trident
       const tridentGroup = new THREE.Group();
       
-      // Staff
       const staffGeometry = new THREE.CylinderGeometry(0.05, 0.05, 2, 8);
       const staffMaterial = new THREE.MeshStandardMaterial({ color: 0x8b4513 });
       const staff = new THREE.Mesh(staffGeometry, staffMaterial);
       tridentGroup.add(staff);
       
-      // Prongs
       for (let i = -1; i <= 1; i++) {
         const prongGeometry = new THREE.CylinderGeometry(0.03, 0.01, 0.5, 8);
         const prong = new THREE.Mesh(prongGeometry, staffMaterial);
@@ -270,7 +350,6 @@ export default function ThreeScene({ profile, gameState }: ThreeSceneProps) {
       tridentGroup.rotation.z = Math.PI * 0.1;
       god.add(tridentGroup);
     } else if (name === "Athena") {
-      // Add shield
       const shieldGeometry = new THREE.CircleGeometry(0.3, 16);
       const shieldMaterial = new THREE.MeshStandardMaterial({ 
         color: 0xb87333,
@@ -283,7 +362,6 @@ export default function ThreeScene({ profile, gameState }: ThreeSceneProps) {
       god.add(shield);
     }
     
-    // Setup god movement pattern
     god.userData = {
       moveSpeed: 0.3 + Math.random() * 0.3,
       rotateSpeed: 0.2 + Math.random() * 0.3,
@@ -298,8 +376,7 @@ export default function ThreeScene({ profile, gameState }: ThreeSceneProps) {
     
     return god;
   };
-  
-  // Add text label above god
+
   const addGodLabel = (god: THREE.Group, name: string) => {
     const canvas = document.createElement('canvas');
     const context = canvas.getContext('2d');
@@ -327,29 +404,25 @@ export default function ThreeScene({ profile, gameState }: ThreeSceneProps) {
     const label = new THREE.Mesh(geometry, material);
     
     label.position.y = 3;
-    label.rotation.x = -Math.PI / 4; // Angle toward camera
+    label.rotation.x = -Math.PI / 4;
     
     god.add(label);
     
-    // Ensure label always faces camera
     god.userData.updateLabel = (camera: THREE.Camera) => {
       label.quaternion.copy(camera.quaternion);
     };
   };
-  
-  // Animate Greek gods moving around
+
   const animateGreekGods = (delta: number) => {
     if (!cameraRef.current) return;
     
     godsRef.current.forEach(god => {
       const data = god.userData;
       
-      // Update label orientation
       if (data.updateLabel) {
         data.updateLabel(cameraRef.current!);
       }
       
-      // Animate particles/aura
       god.children.forEach(child => {
         if (child instanceof THREE.Group) {
           child.children.forEach(particle => {
@@ -365,47 +438,37 @@ export default function ThreeScene({ profile, gameState }: ThreeSceneProps) {
         }
       });
       
-      // Handle movement
       if (data.waitTime > 0) {
         data.waitTime -= delta;
       } else {
-        // Move towards target
         const direction = new THREE.Vector3().subVectors(data.targetPosition, god.position).normalize();
         god.position.add(direction.multiplyScalar(data.moveSpeed * delta));
         
-        // Rotate to face movement direction
         if (direction.length() > 0.01) {
           const targetRotation = Math.atan2(direction.x, direction.z);
           let currentRotation = god.rotation.y;
           
-          // Smoothly rotate
           const rotDiff = targetRotation - currentRotation;
-          // Handle wrapping around 2PI
           const shortestRotation = ((rotDiff + Math.PI) % (Math.PI * 2)) - Math.PI;
           god.rotation.y += shortestRotation * data.rotateSpeed * delta;
         }
         
-        // Check if close to target
         if (god.position.distanceTo(data.targetPosition) < 0.5) {
-          // Set new target
           data.targetPosition.set(
             (Math.random() - 0.5) * 10,
             0,
             (Math.random() - 0.5) * 10
           );
           
-          // Wait a bit before moving to new target
           data.waitTime = data.maxWaitTime;
         }
       }
     });
   };
 
-  // Helper function to create Olympus terrain
   const createOlympusTerrain = () => {
     if (!sceneRef.current) return;
 
-    // Create marble platform
     const platformGeometry = new THREE.CylinderGeometry(7, 7, 0.5, 32);
     const platformMaterial = new THREE.MeshStandardMaterial({ 
       color: 0xf8f9fa,
@@ -417,7 +480,6 @@ export default function ThreeScene({ profile, gameState }: ThreeSceneProps) {
     platform.receiveShadow = true;
     sceneRef.current.add(platform);
 
-    // Create golden trims
     const rimGeometry = new THREE.TorusGeometry(7, 0.2, 16, 100);
     const goldMaterial = new THREE.MeshStandardMaterial({ 
       color: 0xf6bd60,
@@ -429,7 +491,6 @@ export default function ThreeScene({ profile, gameState }: ThreeSceneProps) {
     rim.rotation.x = Math.PI / 2;
     sceneRef.current.add(rim);
 
-    // Create clouds
     const cloudGroup = new THREE.Group();
     for (let i = 0; i < 10; i++) {
       const cloudGeometry = new THREE.SphereGeometry(1 + Math.random() * 2, 8, 8);
@@ -441,14 +502,12 @@ export default function ThreeScene({ profile, gameState }: ThreeSceneProps) {
       });
       const cloud = new THREE.Mesh(cloudGeometry, cloudMaterial);
       
-      // Random positions around the platform
       const angle = Math.random() * Math.PI * 2;
       const distance = 10 + Math.random() * 10;
       cloud.position.x = Math.cos(angle) * distance;
       cloud.position.y = Math.random() * 5 - 2;
       cloud.position.z = Math.sin(angle) * distance;
       
-      // Random scale
       const scale = 0.5 + Math.random() * 1;
       cloud.scale.set(scale, scale * 0.6, scale);
       
@@ -456,7 +515,6 @@ export default function ThreeScene({ profile, gameState }: ThreeSceneProps) {
     }
     sceneRef.current.add(cloudGroup);
 
-    // Animate clouds
     const animateClouds = () => {
       cloudGroup.children.forEach((cloud, i) => {
         cloud.position.y += Math.sin(Date.now() * 0.001 + i) * 0.005;
@@ -465,7 +523,6 @@ export default function ThreeScene({ profile, gameState }: ThreeSceneProps) {
     };
     animateClouds();
 
-    // Create distant mountains
     const mountainGeometry = new THREE.ConeGeometry(5, 10, 4);
     const mountainMaterial = new THREE.MeshStandardMaterial({ color: 0xb7c4cf });
     
@@ -481,128 +538,135 @@ export default function ThreeScene({ profile, gameState }: ThreeSceneProps) {
     }
   };
 
-  // Helper function to create a character based on zodiac sign
-  const createCharacter = () => {
+  const createHumanoidCharacter = () => {
     if (!sceneRef.current || !profile) return;
 
     const character = new THREE.Group();
     characterRef.current = character;
 
-    // Create character based on zodiac element
-    const bodyGeometry = new THREE.SphereGeometry(1, 32, 32);
-    let bodyMaterial;
+    let bodyColor, accentColor;
     
-    // Choose character color based on element
     switch (profile.element) {
       case "Fire":
-        bodyMaterial = new THREE.MeshStandardMaterial({ 
-          color: 0xff5e5b,
-          emissive: 0x601700,
-          emissiveIntensity: 0.3
-        });
+        bodyColor = 0xff5e5b;
+        accentColor = 0xff7f50;
         break;
       case "Earth":
-        bodyMaterial = new THREE.MeshStandardMaterial({ 
-          color: 0x8cb369,
-          roughness: 0.8
-        });
+        bodyColor = 0x8cb369;
+        accentColor = 0x3a5311;
         break;
       case "Air":
-        bodyMaterial = new THREE.MeshStandardMaterial({ 
-          color: 0xd4f1f9,
-          transparent: true,
-          opacity: 0.9
-        });
+        bodyColor = 0xd4f1f9;
+        accentColor = 0xffffff;
         break;
       case "Water":
-        bodyMaterial = new THREE.MeshStandardMaterial({ 
-          color: 0x75b9be,
-          metalness: 0.2,
-          roughness: 0.3
-        });
+        bodyColor = 0x75b9be;
+        accentColor = 0x00bfff;
         break;
       default:
-        bodyMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff });
+        bodyColor = 0xffffff;
+        accentColor = 0xf6bd60;
     }
-
-    const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
-    body.castShadow = true;
-    character.add(body);
-
-    // Add zodiac symbol
-    const symbolGeometry = new THREE.TorusGeometry(0.3, 0.1, 16, 32);
+    
+    const torsoGeometry = new THREE.CapsuleGeometry(0.4, 0.8, 8, 16);
+    const torsoMaterial = new THREE.MeshStandardMaterial({ 
+      color: bodyColor,
+      roughness: 0.5,
+      metalness: 0.2
+    });
+    const torso = new THREE.Mesh(torsoGeometry, torsoMaterial);
+    torso.position.y = 1;
+    torso.castShadow = true;
+    torso.name = "torso";
+    character.add(torso);
+    
+    const headGeometry = new THREE.SphereGeometry(0.3, 16, 16);
+    const headMaterial = new THREE.MeshStandardMaterial({
+      color: bodyColor,
+      roughness: 0.4,
+      metalness: 0.3
+    });
+    const head = new THREE.Mesh(headGeometry, headMaterial);
+    head.position.y = 1.85;
+    head.castShadow = true;
+    head.name = "head";
+    character.add(head);
+    
+    const symbolGeometry = new THREE.CircleGeometry(0.1, 16);
     const symbolMaterial = new THREE.MeshStandardMaterial({ 
       color: 0xf6bd60,
       metalness: 0.8,
-      roughness: 0.2
+      roughness: 0.2,
+      emissive: 0xf6bd60,
+      emissiveIntensity: 0.5
     });
     const symbol = new THREE.Mesh(symbolGeometry, symbolMaterial);
-    symbol.position.z = 1;
-    symbol.rotation.x = Math.PI / 2;
+    symbol.position.z = 0.3;
+    symbol.position.y = 1.9;
+    symbol.name = "symbol";
     character.add(symbol);
-
-    // Add particle effects based on zodiac
-    const particleCount = 50;
-    const particles = new THREE.Group();
+    
+    const armGeometry = new THREE.CapsuleGeometry(0.15, 0.7, 8, 16);
+    const armMaterial = new THREE.MeshStandardMaterial({ 
+      color: bodyColor,
+      roughness: 0.6
+    });
+    
+    const leftArm = new THREE.Mesh(armGeometry, armMaterial);
+    leftArm.position.set(0.6, 1.1, 0);
+    leftArm.rotation.z = -0.2;
+    leftArm.castShadow = true;
+    leftArm.name = "leftArm";
+    character.add(leftArm);
+    
+    const rightArm = new THREE.Mesh(armGeometry, armMaterial);
+    rightArm.position.set(-0.6, 1.1, 0);
+    rightArm.rotation.z = 0.2;
+    rightArm.castShadow = true;
+    rightArm.name = "rightArm";
+    character.add(rightArm);
+    
+    const legGeometry = new THREE.CapsuleGeometry(0.18, 0.8, 8, 16);
+    const legMaterial = new THREE.MeshStandardMaterial({ 
+      color: bodyColor,
+      roughness: 0.6
+    });
+    
+    const leftLeg = new THREE.Mesh(legGeometry, legMaterial);
+    leftLeg.position.set(0.25, 0.45, 0);
+    leftLeg.castShadow = true;
+    leftLeg.name = "leftLeg";
+    character.add(leftLeg);
+    
+    const rightLeg = new THREE.Mesh(legGeometry, legMaterial);
+    rightLeg.position.set(-0.25, 0.45, 0);
+    rightLeg.castShadow = true;
+    rightLeg.name = "rightLeg";
+    character.add(rightLeg);
+    
+    const aura = new THREE.Group();
+    aura.name = "aura";
+    
+    const particleCount = 30;
     
     for (let i = 0; i < particleCount; i++) {
-      let particleGeometry, particleMaterial;
-      
-      // Choose particle type based on element
-      switch (profile.element) {
-        case "Fire":
-          particleGeometry = new THREE.SphereGeometry(0.1, 8, 8);
-          particleMaterial = new THREE.MeshBasicMaterial({ 
-            color: 0xff7f50, 
-            transparent: true, 
-            opacity: 0.7
-          });
-          break;
-        case "Earth":
-          particleGeometry = new THREE.OctahedronGeometry(0.1);
-          particleMaterial = new THREE.MeshBasicMaterial({ 
-            color: 0x3a5311, 
-            transparent: true, 
-            opacity: 0.8
-          });
-          break;
-        case "Air":
-          particleGeometry = new THREE.SphereGeometry(0.05, 8, 8);
-          particleMaterial = new THREE.MeshBasicMaterial({ 
-            color: 0xffffff, 
-            transparent: true, 
-            opacity: 0.5
-          });
-          break;
-        case "Water":
-          particleGeometry = new THREE.SphereGeometry(0.08, 8, 8);
-          particleMaterial = new THREE.MeshBasicMaterial({ 
-            color: 0x00bfff, 
-            transparent: true, 
-            opacity: 0.6
-          });
-          break;
-        default:
-          particleGeometry = new THREE.SphereGeometry(0.1, 8, 8);
-          particleMaterial = new THREE.MeshBasicMaterial({ 
-            color: 0xffffff, 
-            transparent: true, 
-            opacity: 0.5
-          });
-      }
+      const particleGeometry = new THREE.SphereGeometry(0.05 + Math.random() * 0.05, 8, 8);
+      const particleMaterial = new THREE.MeshBasicMaterial({ 
+        color: accentColor, 
+        transparent: true, 
+        opacity: 0.7
+      });
       
       const particle = new THREE.Mesh(particleGeometry, particleMaterial);
       
-      // Position particles in a sphere around character
       const phi = Math.random() * Math.PI * 2;
       const theta = Math.random() * Math.PI;
-      const radius = 1.2 + Math.random() * 0.3;
+      const radius = 0.8 + Math.random() * 0.3;
       
       particle.position.x = radius * Math.sin(theta) * Math.cos(phi);
-      particle.position.y = radius * Math.sin(theta) * Math.sin(phi);
-      particle.position.z = radius * Math.cos(theta);
+      particle.position.y = 1 + Math.random() * 1;
+      particle.position.z = radius * Math.sin(theta) * Math.sin(phi);
       
-      // Store initial position for animation
       particle.userData = {
         initialPosition: particle.position.clone(),
         speed: 0.01 + Math.random() * 0.05,
@@ -610,42 +674,21 @@ export default function ThreeScene({ profile, gameState }: ThreeSceneProps) {
         phase: Math.random() * Math.PI * 2
       };
       
-      particles.add(particle);
+      aura.add(particle);
     }
     
-    character.add(particles);
+    character.add(aura);
     
-    // Animate particles
-    const animateParticles = () => {
-      const time = Date.now() * 0.001;
-      
-      particles.children.forEach((particle: THREE.Object3D) => {
-        const data = particle.userData;
-        
-        // Orbital motion
-        particle.position.x = data.initialPosition.x + Math.sin(time * data.speed + data.phase) * data.amplitude;
-        particle.position.y = data.initialPosition.y + Math.cos(time * data.speed + data.phase) * data.amplitude;
-        particle.position.z = data.initialPosition.z + Math.sin(time * data.speed * 0.5) * data.amplitude * 0.5;
-      });
-      
-      requestAnimationFrame(animateParticles);
-    };
-    
-    animateParticles();
-    
-    // Add companion based on Chinese zodiac
     addCompanion(profile.chineseSign, character);
 
     sceneRef.current.add(character);
   };
-  
-  // Helper function to add a companion based on Chinese zodiac
+
   const addCompanion = (chineseSign: string, character: THREE.Group) => {
     if (!character) return;
     
     const companion = new THREE.Group();
     
-    // Create companion base geometry based on Chinese zodiac
     let companionGeometry, companionMaterial;
     
     switch (chineseSign) {
@@ -672,7 +715,6 @@ export default function ThreeScene({ profile, gameState }: ThreeSceneProps) {
         });
         break;
       default:
-        // Default companion for other signs
         companionGeometry = new THREE.TetrahedronGeometry(0.3);
         companionMaterial = new THREE.MeshStandardMaterial({ 
           color: 0xf6bd60,
@@ -685,10 +727,8 @@ export default function ThreeScene({ profile, gameState }: ThreeSceneProps) {
     companionBody.castShadow = true;
     companion.add(companionBody);
     
-    // Position companion floating near the character
     companion.position.set(1.5, 0.5, 0);
     
-    // Animate companion in orbit around character
     const animateCompanion = () => {
       const time = Date.now() * 0.001;
       companion.position.x = 1.5 * Math.sin(time * 0.5);
@@ -705,7 +745,6 @@ export default function ThreeScene({ profile, gameState }: ThreeSceneProps) {
     character.add(companion);
   };
 
-  // Helper function to update day/night cycle
   const updateDayNightCycle = (cycle: "dawn" | "day" | "dusk" | "night") => {
     if (!sceneRef.current) return;
 
