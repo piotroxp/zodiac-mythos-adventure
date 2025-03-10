@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { ZodiacProfile, GameState } from "@/types/zodiac";
@@ -6,9 +6,10 @@ import { ZodiacProfile, GameState } from "@/types/zodiac";
 interface ThreeSceneProps {
   profile: ZodiacProfile;
   gameState: GameState;
+  onGodInteraction?: (godName: string | null) => void;
 }
 
-export default function ThreeScene({ profile, gameState }: ThreeSceneProps) {
+export default function ThreeScene({ profile, gameState, onGodInteraction }: ThreeSceneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -18,6 +19,8 @@ export default function ThreeScene({ profile, gameState }: ThreeSceneProps) {
   const animationFrameRef = useRef<number | null>(null);
   const clockRef = useRef<THREE.Clock>(new THREE.Clock());
   const godsRef = useRef<THREE.Group[]>([]);
+  const [nearbyGod, setNearbyGod] = useState<string | null>(null);
+  
   const characterMovementRef = useRef({
     walking: false,
     direction: new THREE.Vector3(0, 0, 0),
@@ -141,6 +144,7 @@ export default function ThreeScene({ profile, gameState }: ThreeSceneProps) {
 
       if (characterRef.current) {
         animateCharacter(delta);
+        checkGodProximity();
       }
 
       animateGreekGods(delta);
@@ -178,6 +182,12 @@ export default function ThreeScene({ profile, gameState }: ThreeSceneProps) {
       window.removeEventListener('keyup', handleKeyUp);
     };
   }, []);
+
+  useEffect(() => {
+    if (onGodInteraction) {
+      onGodInteraction(nearbyGod);
+    }
+  }, [nearbyGod, onGodInteraction]);
 
   useEffect(() => {
     if (!sceneRef.current) return;
@@ -311,6 +321,26 @@ export default function ThreeScene({ profile, gameState }: ThreeSceneProps) {
     });
   };
 
+  const checkGodProximity = () => {
+    if (!characterRef.current) return;
+    
+    const characterPosition = characterRef.current.position;
+    let closestGod: { name: string; distance: number } | null = null;
+    
+    godsRef.current.forEach(godGroup => {
+      const distance = characterPosition.distanceTo(godGroup.position);
+      const godName = godGroup.userData.name;
+      
+      if (distance < 2) {
+        if (!closestGod || distance < closestGod.distance) {
+          closestGod = { name: godName, distance };
+        }
+      }
+    });
+    
+    setNearbyGod(closestGod ? closestGod.name : null);
+  };
+
   const createGreekGods = () => {
     if (!sceneRef.current) return;
 
@@ -326,6 +356,7 @@ export default function ThreeScene({ profile, gameState }: ThreeSceneProps) {
     gods.forEach(god => {
       const godGroup = createGod(god.name, god.color, god.scale);
       godGroup.position.set(god.position[0], god.position[1], god.position[2]);
+      godGroup.userData.name = god.name;
       sceneRef.current?.add(godGroup);
       
       godsRef.current.push(godGroup);

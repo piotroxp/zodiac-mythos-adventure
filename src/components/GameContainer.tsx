@@ -1,8 +1,8 @@
-
 import { useState, useEffect } from "react";
 import { ZodiacProfile, GameCharacter, GameState } from "@/types/zodiac";
 import CharacterCreation from "./CharacterCreation";
 import ThreeScene from "./ThreeScene";
+import ConversationPanel from "./ConversationPanel";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -22,10 +22,10 @@ export default function GameContainer() {
     gameTime: 0
   });
   const [showUI, setShowUI] = useState(true);
+  const [activeConversation, setActiveConversation] = useState<string | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
-    // Load profile data from localStorage
     const profileData = localStorage.getItem('olympusProfile');
     const storedName = localStorage.getItem('olympusCharacterName');
     const characterData = localStorage.getItem('olympusCharacter');
@@ -33,7 +33,6 @@ export default function GameContainer() {
     if (profileData) {
       try {
         const parsed = JSON.parse(profileData);
-        // Recreate the Date object since JSON doesn't preserve it
         const profile = {
           ...parsed,
           birthDate: new Date(parsed.birthDate)
@@ -56,7 +55,6 @@ export default function GameContainer() {
         }
       } catch (e) {
         console.error("Error parsing profile data", e);
-        // If there's an error, create a default profile
         const defaultProfile = createZodiacProfile(new Date());
         setProfile(defaultProfile);
       }
@@ -64,13 +62,11 @@ export default function GameContainer() {
     
     setLoading(false);
     
-    // Setup day/night cycle
     const interval = setInterval(() => {
       setGameState(prev => {
         const newTime = prev.gameTime + 1;
         let newCycle = prev.dayNightCycle;
         
-        // Change cycle every 60 game seconds (accelerated time)
         if (newTime % 60 === 0) {
           switch(prev.dayNightCycle) {
             case "dawn": newCycle = "day"; break;
@@ -79,7 +75,6 @@ export default function GameContainer() {
             case "night": newCycle = "dawn"; break;
           }
           
-          // Notify player of time change
           toast({
             title: `${newCycle.charAt(0).toUpperCase() + newCycle.slice(1)} has arrived`,
             description: getTimeDescription(newCycle),
@@ -105,6 +100,45 @@ export default function GameContainer() {
     setShowUI(!showUI);
   };
   
+  const handleGodInteraction = (godName: string | null) => {
+    if (godName !== activeConversation) {
+      if (godName) {
+        if (!activeConversation) {
+          toast({
+            title: `${godName} wishes to speak with you`,
+            description: "Press E to engage in conversation",
+          });
+        }
+      }
+      
+      const handleKeyPress = (e: KeyboardEvent) => {
+        if (e.key === 'e' || e.key === 'E') {
+          if (godName) {
+            setActiveConversation(godName);
+          }
+          window.removeEventListener('keydown', handleKeyPress);
+        }
+      };
+      
+      if (godName) {
+        window.addEventListener('keydown', handleKeyPress);
+        
+        const timeout = setTimeout(() => {
+          window.removeEventListener('keydown', handleKeyPress);
+        }, 3000);
+        
+        return () => {
+          clearTimeout(timeout);
+          window.removeEventListener('keydown', handleKeyPress);
+        };
+      }
+    }
+  };
+  
+  const handleEndConversation = () => {
+    setActiveConversation(null);
+  };
+  
   const getTimeDescription = (cycle: "dawn" | "day" | "dusk" | "night") => {
     switch(cycle) {
       case "dawn": return "The first light of Apollo's chariot appears on the horizon.";
@@ -127,17 +161,15 @@ export default function GameContainer() {
   
   return (
     <div className="fixed inset-0 flex flex-col">
-      {/* 3D Scene */}
       {profile && (
         <ThreeScene 
           profile={profile} 
           gameState={gameState}
+          onGodInteraction={handleGodInteraction}
         />
       )}
       
-      {/* Overlay UI */}
       <div className={`absolute transition-opacity duration-300 ${showUI ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
-        {/* Top bar */}
         <div className="absolute top-0 left-0 right-0 p-4 flex justify-between items-center">
           <div className="olympus-card p-2 px-4">
             <Badge variant="secondary" className="font-medium">
@@ -152,7 +184,6 @@ export default function GameContainer() {
           </div>
         </div>
         
-        {/* Character panel (if created) */}
         {character && (
           <div className="absolute top-16 left-4 olympus-card p-4 max-w-[240px]">
             <div className="flex items-center mb-2">
@@ -207,7 +238,23 @@ export default function GameContainer() {
         )}
       </div>
       
-      {/* Toggle UI button */}
+      {activeConversation && character && (
+        <ConversationPanel 
+          godName={activeConversation}
+          onClose={handleEndConversation}
+        />
+      )}
+      
+      {!activeConversation && showUI && (
+        <div className="fixed bottom-24 left-1/2 transform -translate-x-1/2">
+          {character && nearbyGod && (
+            <div className="olympus-card p-2 px-4 text-center animate-pulse">
+              <p className="text-sm">Press <kbd className="px-2 py-1 bg-muted rounded">E</kbd> to talk</p>
+            </div>
+          )}
+        </div>
+      )}
+      
       <Button 
         onClick={handleToggleUI}
         className="absolute bottom-4 right-4 rounded-full w-10 h-10 p-0"
@@ -216,7 +263,6 @@ export default function GameContainer() {
         {showUI ? "UI" : "UI"}
       </Button>
       
-      {/* Character creation wizard */}
       {profile && !character && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-10">
           <CharacterCreation 
@@ -227,8 +273,7 @@ export default function GameContainer() {
         </div>
       )}
       
-      {/* Quest notification */}
-      {character && (
+      {character && !activeConversation && (
         <div className="fixed bottom-4 left-4 olympus-card p-4 max-w-[300px] animate-fade-in">
           <h3 className="font-serif text-lg mb-1">Welcome to Olympus</h3>
           <p className="text-sm text-muted-foreground mb-3">
